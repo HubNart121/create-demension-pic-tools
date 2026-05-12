@@ -1,389 +1,495 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Download, Move, Type, Trash2, Printer, MousePointer2, GitCommit, Copy, PlusCircle, Undo2, RotateCcw } from 'lucide-react';
-
-const App = () => {
-  const canvasRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const [image, setImage] = useState(null);
-  const [mode, setMode] = useState('select'); // 'select', 'draw-arrow'
-  
-  const [labels, setLabels] = useState([]);
-  const [arrows, setArrows] = useState([]);
-  
-  const [selectedId, setSelectedId] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [tempArrow, setTempArrow] = useState(null);
-
-  // ระบบการวาด (Render Loop)
-  useEffect(() => {
-    renderCanvas();
-  }, [image, labels, arrows, selectedId, tempArrow]);
-
-  // ฟังก์ชันวาดหัวลูกศร
-  const drawArrowhead = (ctx, x, y, angle) => {
-    const headLength = 18;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - headLength * Math.cos(angle - Math.PI / 7), y - headLength * Math.sin(angle - Math.PI / 7));
-    ctx.lineTo(x - headLength * Math.cos(angle + Math.PI / 7), y - headLength * Math.sin(angle + Math.PI / 7));
-    ctx.closePath();
-    ctx.fill();
-  };
-
-  const renderCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    
-    // ล้างหน้าจอ
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 1. วาดรูปภาพพื้นหลัง
-    if (image) {
-      const hRatio = canvas.width / image.width;
-      const vRatio = canvas.height / image.height;
-      const ratio = Math.min(hRatio, vRatio);
-      const centerShift_x = (canvas.width - image.width * ratio) / 2;
-      const centerShift_y = (canvas.height - image.height * ratio) / 2;
-      ctx.drawImage(image, 0, 0, image.width, image.height,
-        centerShift_x, centerShift_y, image.width * ratio, image.height * ratio);
-    } else {
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#cbd5e1';
-      ctx.font = '22px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('กรุณาอัปโหลดรูปภาพสินค้าเพื่อเริ่มงาน', canvas.width / 2, canvas.height / 2);
-    }
-
-    // 2. วาดเส้นลูกศรที่บันทึกไว้
-    arrows.forEach(arrow => {
-      ctx.strokeStyle = arrow.color || '#0044FF';
-      ctx.fillStyle = arrow.color || '#0044FF';
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      
-      ctx.beginPath();
-      ctx.moveTo(arrow.x1, arrow.y1);
-      ctx.lineTo(arrow.x2, arrow.y2);
-      ctx.stroke();
-
-      const angle = Math.atan2(arrow.y2 - arrow.y1, arrow.x2 - arrow.x1);
-      drawArrowhead(ctx, arrow.x2, arrow.y2, angle);
-      drawArrowhead(ctx, arrow.x1, arrow.y1, angle + Math.PI);
-    });
-
-    // 3. วาดเส้นลูกศรชั่วคราวขณะลากวาด
-    if (tempArrow) {
-      ctx.strokeStyle = '#3b82f6';
-      ctx.fillStyle = '#3b82f6';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([8, 4]);
-      ctx.beginPath();
-      ctx.moveTo(tempArrow.x1, tempArrow.y1);
-      ctx.lineTo(tempArrow.x2, tempArrow.y2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // 4. วาดตัวเลข/ข้อความ (วาดทับด้านบนสุด)
-    labels.forEach(label => {
-      ctx.font = `bold ${label.fontSize}px Arial, sans-serif`;
-      ctx.textAlign = 'center';
-      
-      // ขอบสีขาวเพื่อให้เห็นตัวเลขชัดเจนบนทุกพื้นหลัง
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 6;
-      ctx.lineJoin = 'round';
-      ctx.strokeText(label.text, label.x, label.y);
-      
-      // สีตัวอักษร
-      ctx.fillStyle = selectedId === label.id ? '#ef4444' : (label.color || '#0044FF');
-      ctx.fillText(label.text, label.x, label.y);
-      
-      // แสดงกรอบเมื่อถูกเลือก
-      if (selectedId === label.id) {
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 2]);
-        const textWidth = ctx.measureText(label.text).width;
-        ctx.strokeRect(label.x - (textWidth / 2) - 10, label.y - label.fontSize, textWidth + 20, label.fontSize + 10);
-        ctx.setLineDash([]);
-      }
-    });
-  };
-
-  const getMousePos = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
-    };
-  };
-
-  const handleMouseDown = (e) => {
-    const pos = getMousePos(e);
-    
-    if (mode === 'draw-arrow') {
-      setIsDragging(true);
-      setTempArrow({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
-      return;
-    }
-
-    // ตรวจสอบการคลิกเลือกตัวเลข
-    const clickedLabel = [...labels].reverse().find(l => {
-      const dist = Math.sqrt(Math.pow(l.x - pos.x, 2) + Math.pow(l.y - pos.y, 2));
-      return dist < 40;
-    });
-
-    if (clickedLabel) {
-      setSelectedId(clickedLabel.id);
-      setIsDragging(true);
-      setDragOffset({ x: pos.x - clickedLabel.x, y: pos.y - clickedLabel.y });
-    } else {
-      setSelectedId(null);
-    }
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDragging) return;
-    const pos = getMousePos(e);
-
-    if (mode === 'draw-arrow') {
-      setTempArrow(prev => ({ ...prev, x2: pos.x, y2: pos.y }));
-    } else if (selectedId) {
-      setLabels(labels.map(l => 
-        l.id === selectedId ? { ...l, x: pos.x - dragOffset.x, y: pos.y - dragOffset.y } : l
-      ));
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (mode === 'draw-arrow' && tempArrow) {
-      const distance = Math.sqrt(Math.pow(tempArrow.x2 - tempArrow.x1, 2) + Math.pow(tempArrow.y2 - tempArrow.y1, 2));
-      if (distance > 15) {
-        setArrows([...arrows, { ...tempArrow, id: Date.now().toString(), color: '#0044FF' }]);
-      }
-      setTempArrow(null);
-    }
-    setIsDragging(false);
-  };
-
-  const addLabel = () => {
-    const newId = 'l' + Date.now();
-    setLabels([...labels, { id: newId, text: '000 mm.', x: 500, y: 375, color: '#0044FF', fontSize: 22 }]);
-    setSelectedId(newId);
-    setMode('select');
-  };
-
-  const downloadImage = () => {
-    setSelectedId(null);
-    setTimeout(() => {
-      const link = document.createElement('a');
-      link.download = `dimension-pic-${Date.now()}.jpg`;
-      link.href = canvasRef.current.toDataURL('image/jpeg', 0.95);
-      link.click();
-    }, 50);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans">
-      <div className="max-w-[1440px] w-full bg-white min-h-screen flex flex-col md:flex-row shadow-2xl overflow-hidden border-x border-slate-200">
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dimension Overlay Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
         
-        {/* Sidebar Controls */}
-        <div className="w-full md:w-80 bg-slate-900 text-white flex flex-col no-print border-r border-slate-800">
-          <div className="p-6 border-b border-slate-800">
-            <h1 className="text-xl font-bold flex items-center gap-3">
-              <div className="bg-blue-600 p-1.5 rounded-lg">
-                <GitCommit size={20} className="text-white" />
-              </div>
-              Spec Builder Pro
-            </h1>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2 font-bold italic">
-              Create Dimension Images
-            </p>
-          </div>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
 
-          <div className="p-6 flex flex-col gap-8 flex-1 overflow-y-auto">
-            {/* Step 1: Image Upload */}
-            <div className="space-y-3">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">1. เตรียมรูปภาพ</label>
-              <button 
-                onClick={() => fileInputRef.current.click()}
-                className="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 flex items-center justify-center gap-3 transition-all active:scale-95 group"
-              >
-                <Camera size={20} className="text-blue-400 group-hover:scale-110 transition-transform" />
-                <span className="text-sm font-medium">เลือกไฟล์รูปภาพ</span>
-              </button>
-              <input type="file" ref={fileInputRef} onChange={(e) => {
-                const file = e.target.files[0];
-                if(file) {
-                  const reader = new FileReader();
-                  reader.onload = (ev) => {
-                    const img = new Image();
-                    img.onload = () => setImage(img);
-                    img.src = ev.target.result;
-                  };
-                  reader.readAsDataURL(file);
-                }
-              }} className="hidden" accept="image/*" />
-            </div>
-
-            {/* Step 2: Drawing Tools */}
-            <div className="space-y-3">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">2. วาดเส้นลูกศร</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button 
-                  onClick={() => setMode('select')} 
-                  className={`py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${mode === 'select' ? 'bg-blue-600 border-blue-400 shadow-lg shadow-blue-900/40' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
-                >
-                  <MousePointer2 size={18} />
-                  <span className="text-[11px] font-bold">เลือก/ย้าย</span>
-                </button>
-                <button 
-                  onClick={() => setMode('draw-arrow')} 
-                  className={`py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${mode === 'draw-arrow' ? 'bg-orange-600 border-orange-400 shadow-lg shadow-orange-900/40' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
-                >
-                  <Move size={18} />
-                  <span className="text-[11px] font-bold">วาดลูกศร</span>
-                </button>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => setArrows(arrows.slice(0, -1))} disabled={arrows.length === 0} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2 disabled:opacity-30 transition-all">
-                  <Undo2 size={14} /> Undo เส้น
-                </button>
-                <button onClick={() => { if(confirm('ต้องการลบเส้นทั้งหมด?')) setArrows([]); }} className="flex-1 py-2 bg-slate-800 hover:bg-red-900/20 border border-slate-700 hover:border-red-900/50 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2 transition-all">
-                  <Trash2 size={14} /> ล้างเส้น
-                </button>
-              </div>
-            </div>
-
-            {/* Step 3: Labels */}
-            <div className="space-y-3">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">3. ใส่ตัวเลขขนาด</label>
-              <button 
-                onClick={addLabel}
-                className="w-full py-4 bg-blue-600 hover:bg-blue-500 rounded-xl flex items-center justify-center gap-3 font-bold text-sm shadow-xl shadow-blue-900/30 transition-all active:translate-y-1 active:shadow-none border-b-4 border-blue-800"
-              >
-                <PlusCircle size={22} />
-                สร้างตัวเลขใหม่
-              </button>
-
-              {selectedId && labels.find(l => l.id === selectedId) && (
-                <div className="mt-4 p-4 bg-slate-800 rounded-xl border border-blue-500/50 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">แก้ไขตัวเลข</span>
-                    <button onClick={deleteSelected} className="text-red-400 hover:text-red-300">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  <input 
-                    type="text" 
-                    value={labels.find(l => l.id === selectedId).text}
-                    onChange={(e) => setLabels(labels.map(l => l.id === selectedId ? {...l, text: e.target.value} : l))}
-                    className="w-full bg-white text-slate-900 p-2.5 rounded-lg text-sm font-bold outline-none ring-4 ring-blue-500/20"
-                    placeholder="ระบุขนาด..."
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => {
-                        const sel = labels.find(l => l.id === selectedId);
-                        const newId = 'l' + Date.now();
-                        setLabels([...labels, { ...sel, id: newId, x: sel.x + 30, y: sel.y + 30 }]);
-                        setSelectedId(newId);
-                      }}
-                      className="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2"
-                    >
-                      <Copy size={14} /> คัดลอก
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Export Footer */}
-          <div className="p-6 bg-slate-950 border-t border-slate-800 space-y-2">
-            <button 
-              onClick={downloadImage}
-              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl flex items-center justify-center gap-3 font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-0.5"
-            >
-              <Download size={20} />
-              บันทึกรูปภาพ (.JPG)
-            </button>
-            <button 
-              onClick={() => window.print()}
-              className="w-full py-3.5 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center gap-3 font-bold text-sm transition-all"
-            >
-              <Printer size={20} />
-              พิมพ์เป็น PDF
-            </button>
-          </div>
-        </div>
-
-        {/* Main Canvas Workspace */}
-        <div className="flex-1 bg-slate-50 flex flex-col items-center justify-center p-4 md:p-12 relative overflow-hidden print:p-0 print:bg-white">
-          
-          {/* Header สำหรับหน้า Print */}
-          <div className="hidden print:block w-full text-center mb-10">
-            <h1 className="text-3xl font-bold text-slate-900">ตารางระบุขนาดสินค้า (Product Dimension)</h1>
-            <p className="text-slate-500 mt-2">พิมพ์เมื่อวันที่: {new Date().toLocaleDateString('th-TH')}</p>
-          </div>
-
-          {/* โหมดสถานะ (ลอยอยู่ด้านบน) */}
-          <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 no-print">
-            <div className={`px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 border text-sm font-bold transition-all ${mode === 'draw-arrow' ? 'bg-orange-600 text-white border-orange-500 animate-pulse' : 'bg-white text-blue-600 border-blue-100'}`}>
-              {mode === 'draw-arrow' ? (
-                <><Move size={16} /> โหมดวาดลูกศร: คลิกลากบนภาพเพื่อสร้างเส้นวัดมิติ</>
-              ) : (
-                <><MousePointer2 size={16} /> โหมดเลือก: คลิกที่ตัวเลขเพื่อย้ายหรือแก้ไขข้อมูล</>
-              )}
-            </div>
-          </div>
-
-          {/* Canvas Wrapper */}
-          <div className="relative shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] rounded-lg bg-white overflow-hidden border-[12px] border-white print:border-0 print:shadow-none transition-transform duration-500">
-            <canvas 
-              ref={canvasRef}
-              width={1100}
-              height={850}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              className={`max-w-full h-auto block transition-all ${mode === 'draw-arrow' ? 'cursor-crosshair' : 'cursor-default select-none'}`}
-            />
-          </div>
-
-          <div className="mt-8 text-slate-400 text-xs flex gap-10 no-print font-medium italic opacity-70">
-            <p>💡 เคล็ดลับ: วาดลูกศรให้เสร็จก่อน แล้วค่อยสร้างตัวเลขมาวางทับกึ่งกลางเส้น</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ปรับแต่ง CSS สำหรับการพิมพ์ */}
-      <style>{`
         @media print {
-          .no-print { display: none !important; }
-          body { background: white; margin: 0; padding: 0; }
-          .min-h-screen { min-height: auto; display: block; }
-          .max-w-\[1440px\] { max-width: 100%; border: none; box-shadow: none; display: block; }
-          canvas { width: 100% !important; height: auto !important; max-width: 100%; }
-          @page { size: A4 landscape; margin: 1cm; }
+            .no-print { display: none !important; }
+            body { background: white; margin: 0; padding: 0; }
+            #app-container { max-width: 100%; border: none; box-shadow: none; display: block; height: auto; min-height: auto; }
+            #sidebar { display: none; }
+            #main-content { padding: 0 !important; background: white; display: block; }
+            canvas { width: 100% !important; height: auto !important; max-width: 100%; box-shadow: none !important; border: none !important; margin: 0 auto; display: block; }
+            #print-header { display: block !important; text-align: center; margin-bottom: 20px; }
+            @page { size: A4 landscape; margin: 1cm; }
         }
 
-        /* สำหรับ Scrollbar ของ Sidebar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #475569; }
-      `}</style>
-    </div>
-  );
-};
 
-export default App;
+        /* Custom Styles for Canvas Container */
+        .canvas-container-shadow {
+            box-shadow: 0 35px 60px -15px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center">
+
+    <div id="app-container" class="max-w-[1440px] w-full bg-white min-h-screen flex flex-col md:flex-row shadow-2xl overflow-hidden border-x border-slate-200">
+        
+        <!-- Sidebar Controls -->
+        <div id="sidebar" class="w-full md:w-80 bg-slate-900 text-white flex flex-col no-print border-r border-slate-800 h-screen sticky top-0">
+            <div class="p-6 border-b border-slate-800 shrink-0">
+                <h1 class="text-xl font-bold flex items-center gap-3">
+                    <div class="bg-blue-600 p-1.5 rounded-lg flex items-center justify-center">
+                        <i data-lucide="git-commit" class="text-white w-5 h-5"></i>
+                    </div>
+                    Spec Builder Pro
+                </h1>
+                <p class="text-[10px] text-slate-500 uppercase tracking-widest mt-2 font-bold italic">
+                    Create Dimension Images
+                </p>
+            </div>
+
+            <div class="p-6 flex flex-col gap-8 flex-1 overflow-y-auto">
+                <!-- Step 1: Image Upload -->
+                <div class="space-y-3">
+                    <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">1. เตรียมรูปภาพ</label>
+                    <button id="btn-upload" class="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 flex items-center justify-center gap-3 transition-all active:scale-95 group">
+                        <i data-lucide="camera" class="text-blue-400 w-5 h-5 group-hover:scale-110 transition-transform"></i>
+                        <span class="text-sm font-medium">เลือกไฟล์รูปภาพ</span>
+                    </button>
+                    <input type="file" id="file-input" class="hidden" accept="image/*" />
+                </div>
+
+                <!-- Step 2: Drawing Tools -->
+                <div class="space-y-3">
+                    <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">2. วาดเส้นลูกศร</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btn-mode-select" class="py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all bg-blue-600 border-blue-400 shadow-lg shadow-blue-900/40">
+                            <i data-lucide="mouse-pointer-2" class="w-[18px] h-[18px]"></i>
+                            <span class="text-[11px] font-bold">เลือก/ย้าย</span>
+                        </button>
+                        <button id="btn-mode-draw" class="py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all bg-slate-800 border-slate-700 hover:bg-slate-700">
+                            <i data-lucide="move" class="w-[18px] h-[18px]"></i>
+                            <span class="text-[11px] font-bold">วาดลูกศร</span>
+                        </button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btn-undo-arrow" disabled class="flex-1 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2 disabled:opacity-30 transition-all">
+                            <i data-lucide="undo-2" class="w-[14px] h-[14px]"></i> Undo เส้น
+                        </button>
+                        <button id="btn-clear-arrows" class="flex-1 py-2 bg-slate-800 hover:bg-red-900/20 border border-slate-700 hover:border-red-900/50 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2 transition-all">
+                            <i data-lucide="trash-2" class="w-[14px] h-[14px]"></i> ล้างเส้น
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Labels -->
+                <div class="space-y-3">
+                    <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">3. ใส่ตัวเลขขนาด</label>
+                    <button id="btn-add-label" class="w-full py-4 bg-blue-600 hover:bg-blue-500 rounded-xl flex items-center justify-center gap-3 font-bold text-sm shadow-xl shadow-blue-900/30 transition-all active:translate-y-1 active:shadow-none border-b-4 border-blue-800">
+                        <i data-lucide="plus-circle" class="w-[22px] h-[22px]"></i>
+                        สร้างตัวเลขใหม่
+                    </button>
+
+                    <!-- Edit Panel (Hidden by default) -->
+                    <div id="edit-panel" class="hidden mt-4 p-4 bg-slate-800 rounded-xl border border-blue-500/50 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider">แก้ไขตัวเลข</span>
+                            <button id="btn-delete-label" class="text-red-400 hover:text-red-300">
+                                <i data-lucide="trash-2" class="w-[14px] h-[14px]"></i>
+                            </button>
+                        </div>
+                        <input type="text" id="label-input" class="w-full bg-white text-slate-900 p-2.5 rounded-lg text-sm font-bold outline-none ring-4 ring-blue-500/20" placeholder="ระบุขนาด..." />
+                        <div class="flex gap-2">
+                            <button id="btn-copy-label" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2">
+                                <i data-lucide="copy" class="w-[14px] h-[14px]"></i> คัดลอก
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Export Footer -->
+            <div class="p-6 bg-slate-950 border-t border-slate-800 space-y-2 shrink-0">
+                <button id="btn-download" class="w-full py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl flex items-center justify-center gap-3 font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-0.5">
+                    <i data-lucide="download" class="w-5 h-5"></i>
+                    บันทึกรูปภาพ (.JPG)
+                </button>
+                <button id="btn-print" class="w-full py-3.5 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center gap-3 font-bold text-sm transition-all">
+                    <i data-lucide="printer" class="w-5 h-5"></i>
+                    พิมพ์เป็น PDF
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Canvas Workspace -->
+        <div id="main-content" class="flex-1 bg-slate-50 flex flex-col items-center justify-center p-4 md:p-12 relative overflow-auto">
+            
+            <!-- Header สำหรับหน้า Print -->
+            <div id="print-header" class="hidden print:block w-full text-center mb-10">
+                <h1 class="text-3xl font-bold text-slate-900">ตารางระบุขนาดสินค้า (Product Dimension)</h1>
+                <p class="text-slate-500 mt-2" id="print-date">พิมพ์เมื่อวันที่: </p>
+            </div>
+
+            <!-- โหมดสถานะ (ลอยอยู่ด้านบน) -->
+            <div class="absolute top-8 left-1/2 -translate-x-1/2 z-20 no-print">
+                <div id="status-indicator" class="px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 border text-sm font-bold transition-all bg-white text-blue-600 border-blue-100">
+                    <i data-lucide="mouse-pointer-2" class="w-4 h-4"></i> โหมดเลือก: คลิกที่ตัวเลขเพื่อย้ายหรือแก้ไขข้อมูล
+                </div>
+            </div>
+
+            <!-- Canvas Wrapper -->
+            <div class="relative canvas-container-shadow rounded-lg bg-white overflow-hidden border-[12px] border-white print:border-0 print:shadow-none transition-transform duration-500 mt-16 md:mt-0">
+                <canvas id="myCanvas" width="1100" height="850" class="max-w-full h-auto block transition-all cursor-default select-none"></canvas>
+            </div>
+
+            <div class="mt-8 text-slate-400 text-xs flex gap-10 no-print font-medium italic opacity-70">
+                <p>💡 เคล็ดลับ: วาดลูกศรให้เสร็จก่อน แล้วค่อยสร้างตัวเลขมาวางทับกึ่งกลางเส้น</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // State variables
+        let image = null;
+        let mode = 'select'; // 'select', 'draw-arrow'
+        let labels = [];
+        let arrows = [];
+        let selectedId = null;
+        let isDragging = false;
+        let dragOffset = { x: 0, y: 0 };
+        let tempArrow = null;
+
+        // DOM Elements
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+        const fileInput = document.getElementById('file-input');
+        const btnUpload = document.getElementById('btn-upload');
+        const btnModeSelect = document.getElementById('btn-mode-select');
+        const btnModeDraw = document.getElementById('btn-mode-draw');
+        const btnUndoArrow = document.getElementById('btn-undo-arrow');
+        const btnClearArrows = document.getElementById('btn-clear-arrows');
+        const btnAddLabel = document.getElementById('btn-add-label');
+        const editPanel = document.getElementById('edit-panel');
+        const labelInput = document.getElementById('label-input');
+        const btnDeleteLabel = document.getElementById('btn-delete-label');
+        const btnCopyLabel = document.getElementById('btn-copy-label');
+        const btnDownload = document.getElementById('btn-download');
+        const btnPrint = document.getElementById('btn-print');
+        const statusIndicator = document.getElementById('status-indicator');
+        const printDate = document.getElementById('print-date');
+
+        // Set Print Date
+        printDate.textContent = 'พิมพ์เมื่อวันที่: ' + new Date().toLocaleDateString('th-TH');
+
+        // Render Function
+        function drawArrowhead(ctx, x, y, angle) {
+            const headLength = 18;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x - headLength * Math.cos(angle - Math.PI / 7), y - headLength * Math.sin(angle - Math.PI / 7));
+            ctx.lineTo(x - headLength * Math.cos(angle + Math.PI / 7), y - headLength * Math.sin(angle + Math.PI / 7));
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function renderCanvas() {
+            // ล้างหน้าจอ
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. วาดรูปภาพพื้นหลัง
+            if (image) {
+                const hRatio = canvas.width / image.width;
+                const vRatio = canvas.height / image.height;
+                const ratio = Math.min(hRatio, vRatio);
+                const centerShift_x = (canvas.width - image.width * ratio) / 2;
+                const centerShift_y = (canvas.height - image.height * ratio) / 2;
+                ctx.drawImage(image, 0, 0, image.width, image.height,
+                    centerShift_x, centerShift_y, image.width * ratio, image.height * ratio);
+            } else {
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#cbd5e1';
+                ctx.font = '22px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('กรุณาอัปโหลดรูปภาพสินค้าเพื่อเริ่มงาน', canvas.width / 2, canvas.height / 2);
+            }
+
+            // 2. วาดเส้นลูกศรที่บันทึกไว้
+            arrows.forEach(arrow => {
+                ctx.strokeStyle = arrow.color || '#0044FF';
+                ctx.fillStyle = arrow.color || '#0044FF';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                
+                ctx.beginPath();
+                ctx.moveTo(arrow.x1, arrow.y1);
+                ctx.lineTo(arrow.x2, arrow.y2);
+                ctx.stroke();
+
+                const angle = Math.atan2(arrow.y2 - arrow.y1, arrow.x2 - arrow.x1);
+                drawArrowhead(ctx, arrow.x2, arrow.y2, angle);
+                drawArrowhead(ctx, arrow.x1, arrow.y1, angle + Math.PI);
+            });
+
+            // 3. วาดเส้นลูกศรชั่วคราวขณะลากวาด
+            if (tempArrow) {
+                ctx.strokeStyle = '#3b82f6';
+                ctx.fillStyle = '#3b82f6';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([8, 4]);
+                ctx.beginPath();
+                ctx.moveTo(tempArrow.x1, tempArrow.y1);
+                ctx.lineTo(tempArrow.x2, tempArrow.y2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // 4. วาดตัวเลข/ข้อความ (วาดทับด้านบนสุด)
+            labels.forEach(label => {
+                ctx.font = `bold ${label.fontSize}px Arial, sans-serif`;
+                ctx.textAlign = 'center';
+                
+                // ขอบสีขาวเพื่อให้เห็นตัวเลขชัดเจนบนทุกพื้นหลัง
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 6;
+                ctx.lineJoin = 'round';
+                ctx.strokeText(label.text, label.x, label.y);
+                
+                // สีตัวอักษร
+                ctx.fillStyle = selectedId === label.id ? '#ef4444' : (label.color || '#0044FF');
+                ctx.fillText(label.text, label.x, label.y);
+                
+                // แสดงกรอบเมื่อถูกเลือก
+                if (selectedId === label.id) {
+                    ctx.strokeStyle = '#ef4444';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 2]);
+                    const textWidth = ctx.measureText(label.text).width;
+                    ctx.strokeRect(label.x - (textWidth / 2) - 10, label.y - label.fontSize, textWidth + 20, label.fontSize + 10);
+                    ctx.setLineDash([]);
+                }
+            });
+
+            updateUI();
+        }
+
+        function updateUI() {
+            // Update Mode Buttons
+            if (mode === 'select') {
+                btnModeSelect.className = "py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all bg-blue-600 border-blue-400 shadow-lg shadow-blue-900/40 text-white";
+                btnModeDraw.className = "py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all bg-slate-800 border-slate-700 hover:bg-slate-700 text-white";
+                canvas.classList.remove('cursor-crosshair');
+                canvas.classList.add('cursor-default');
+                
+                statusIndicator.className = "px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 border text-sm font-bold transition-all bg-white text-blue-600 border-blue-100";
+                statusIndicator.innerHTML = '<i data-lucide="mouse-pointer-2" class="w-4 h-4"></i> โหมดเลือก: คลิกที่ตัวเลขเพื่อย้ายหรือแก้ไขข้อมูล';
+            } else {
+                btnModeSelect.className = "py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all bg-slate-800 border-slate-700 hover:bg-slate-700 text-white";
+                btnModeDraw.className = "py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all bg-orange-600 border-orange-400 shadow-lg shadow-orange-900/40 text-white";
+                canvas.classList.add('cursor-crosshair');
+                canvas.classList.remove('cursor-default');
+                
+                statusIndicator.className = "px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 border text-sm font-bold transition-all bg-orange-600 text-white border-orange-500 animate-pulse";
+                statusIndicator.innerHTML = '<i data-lucide="move" class="w-4 h-4"></i> โหมดวาดลูกศร: คลิกลากบนภาพเพื่อสร้างเส้นวัดมิติ';
+            }
+            lucide.createIcons();
+
+            // Update Undo Button
+            btnUndoArrow.disabled = arrows.length === 0;
+            if(arrows.length === 0){
+                btnUndoArrow.classList.add('opacity-30');
+            } else {
+                btnUndoArrow.classList.remove('opacity-30');
+            }
+
+            // Update Edit Panel
+            if (selectedId && labels.find(l => l.id === selectedId)) {
+                editPanel.classList.remove('hidden');
+                const selectedLabel = labels.find(l => l.id === selectedId);
+                // Only update input value if it's not currently focused (prevent cursor jump)
+                if(document.activeElement !== labelInput) {
+                    labelInput.value = selectedLabel.text;
+                }
+            } else {
+                editPanel.classList.add('hidden');
+            }
+        }
+
+        // Event Listeners for UI
+        btnUpload.addEventListener('click', () => fileInput.click());
+        
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        image = img;
+                        renderCanvas();
+                    };
+                    img.src = ev.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        btnModeSelect.addEventListener('click', () => { setModeState('select'); });
+        btnModeDraw.addEventListener('click', () => { setModeState('draw-arrow'); setSelectedIdState(null); });
+        
+        function setModeState(newMode) {
+            mode = newMode;
+            renderCanvas();
+        }
+
+        function setSelectedIdState(id) {
+            selectedId = id;
+            renderCanvas();
+            if(id) {
+                setTimeout(() => labelInput.focus(), 50);
+            }
+        }
+
+        btnUndoArrow.addEventListener('click', () => {
+            arrows.pop();
+            renderCanvas();
+        });
+
+        btnClearArrows.addEventListener('click', () => {
+            if (confirm('ต้องการลบเส้นทั้งหมด?')) {
+                arrows = [];
+                renderCanvas();
+            }
+        });
+
+        btnAddLabel.addEventListener('click', () => {
+            const newId = 'l' + Date.now();
+            labels.push({ id: newId, text: '000 mm.', x: 500, y: 375, color: '#0044FF', fontSize: 22 });
+            setSelectedIdState(newId);
+            setModeState('select');
+        });
+
+        labelInput.addEventListener('input', (e) => {
+            if (selectedId) {
+                const label = labels.find(l => l.id === selectedId);
+                if (label) {
+                    label.text = e.target.value;
+                    renderCanvas();
+                }
+            }
+        });
+
+        btnDeleteLabel.addEventListener('click', () => {
+            if (selectedId) {
+                labels = labels.filter(l => l.id !== selectedId);
+                setSelectedIdState(null);
+            }
+        });
+
+        btnCopyLabel.addEventListener('click', () => {
+            const sel = labels.find(l => l.id === selectedId);
+            if (sel) {
+                const newId = 'l' + Date.now();
+                labels.push({ ...sel, id: newId, x: sel.x + 30, y: sel.y + 30 });
+                setSelectedIdState(newId);
+            }
+        });
+
+        btnDownload.addEventListener('click', () => {
+            setSelectedIdState(null); // Clear selection UI
+            setTimeout(() => {
+                const link = document.createElement('a');
+                link.download = `dimension-pic-${Date.now()}.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 0.95);
+                link.click();
+            }, 50);
+        });
+
+        btnPrint.addEventListener('click', () => {
+            setSelectedIdState(null);
+            setTimeout(() => {
+                window.print();
+            }, 50);
+        });
+
+        // Canvas Mouse Events
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getMousePos(e);
+            
+            if (mode === 'draw-arrow') {
+                isDragging = true;
+                tempArrow = { x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y };
+                renderCanvas();
+                return;
+            }
+
+            // Check if clicked on a label
+            const clickedLabel = [...labels].reverse().find(l => {
+                const dist = Math.sqrt(Math.pow(l.x - pos.x, 2) + Math.pow(l.y - pos.y, 2));
+                return dist < 40;
+            });
+
+            if (clickedLabel) {
+                setSelectedIdState(clickedLabel.id);
+                isDragging = true;
+                dragOffset = { x: pos.x - clickedLabel.x, y: pos.y - clickedLabel.y };
+            } else {
+                setSelectedIdState(null);
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const pos = getMousePos(e);
+
+            if (mode === 'draw-arrow' && tempArrow) {
+                tempArrow.x2 = pos.x;
+                tempArrow.y2 = pos.y;
+                renderCanvas();
+            } else if (selectedId) {
+                const label = labels.find(l => l.id === selectedId);
+                if (label) {
+                    label.x = pos.x - dragOffset.x;
+                    label.y = pos.y - dragOffset.y;
+                    renderCanvas();
+                }
+            }
+        });
+
+        function handleMouseUp() {
+            if (mode === 'draw-arrow' && tempArrow) {
+                const distance = Math.sqrt(Math.pow(tempArrow.x2 - tempArrow.x1, 2) + Math.pow(tempArrow.y2 - tempArrow.y1, 2));
+                if (distance > 15) {
+                    arrows.push({ ...tempArrow, id: Date.now().toString(), color: '#0044FF' });
+                }
+                tempArrow = null;
+                renderCanvas();
+            }
+            isDragging = false;
+        }
+
+        canvas.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('mouseleave', handleMouseUp);
+
+        // Initial Render
+        renderCanvas();
+
+    </script>
+</body>
+</html>
