@@ -15,11 +15,12 @@ const App = () => {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [tempArrow, setTempArrow] = useState(null);
 
-  // Render Loop
+  // ระบบการวาด (Render Loop)
   useEffect(() => {
     renderCanvas();
   }, [image, labels, arrows, selectedId, tempArrow]);
 
+  // ฟังก์ชันวาดหัวลูกศร
   const drawArrowhead = (ctx, x, y, angle) => {
     const headLength = 18;
     ctx.beginPath();
@@ -35,10 +36,10 @@ const App = () => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     
-    // Clear Canvas
+    // ล้างหน้าจอ
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Draw Image
+    // 1. วาดรูปภาพพื้นหลัง
     if (image) {
       const hRatio = canvas.width / image.width;
       const vRatio = canvas.height / image.height;
@@ -51,15 +52,15 @@ const App = () => {
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = '#cbd5e1';
-      ctx.font = '24px Inter, sans-serif';
+      ctx.font = '22px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('คลิก "เลือกรูปภาพสินค้า" เพื่อเริ่มการทำงาน', canvas.width / 2, canvas.height / 2);
+      ctx.fillText('กรุณาอัปโหลดรูปภาพสินค้าเพื่อเริ่มงาน', canvas.width / 2, canvas.height / 2);
     }
 
-    // 2. Draw Arrows
+    // 2. วาดเส้นลูกศรที่บันทึกไว้
     arrows.forEach(arrow => {
-      ctx.strokeStyle = arrow.color;
-      ctx.fillStyle = arrow.color;
+      ctx.strokeStyle = arrow.color || '#0044FF';
+      ctx.fillStyle = arrow.color || '#0044FF';
       ctx.lineWidth = 3;
       ctx.lineCap = 'round';
       
@@ -73,7 +74,7 @@ const App = () => {
       drawArrowhead(ctx, arrow.x1, arrow.y1, angle + Math.PI);
     });
 
-    // 3. Draw Preview Arrow (Temporary)
+    // 3. วาดเส้นลูกศรชั่วคราวขณะลากวาด
     if (tempArrow) {
       ctx.strokeStyle = '#3b82f6';
       ctx.fillStyle = '#3b82f6';
@@ -86,34 +87,28 @@ const App = () => {
       ctx.setLineDash([]);
     }
 
-    // 4. Draw Labels (On top)
+    // 4. วาดตัวเลข/ข้อความ (วาดทับด้านบนสุด)
     labels.forEach(label => {
       ctx.font = `bold ${label.fontSize}px Arial, sans-serif`;
       ctx.textAlign = 'center';
       
-      // Outline for better visibility
+      // ขอบสีขาวเพื่อให้เห็นตัวเลขชัดเจนบนทุกพื้นหลัง
       ctx.strokeStyle = 'white';
       ctx.lineWidth = 6;
       ctx.lineJoin = 'round';
       ctx.strokeText(label.text, label.x, label.y);
       
-      // Text color
-      ctx.fillStyle = selectedId === label.id ? '#ef4444' : '#0044FF';
+      // สีตัวอักษร
+      ctx.fillStyle = selectedId === label.id ? '#ef4444' : (label.color || '#0044FF');
       ctx.fillText(label.text, label.x, label.y);
       
-      // Highlight selection
+      // แสดงกรอบเมื่อถูกเลือก
       if (selectedId === label.id) {
         ctx.strokeStyle = '#ef4444';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 2]);
-        const textMetrics = ctx.measureText(label.text);
-        const padding = 10;
-        ctx.strokeRect(
-          label.x - (textMetrics.width / 2) - padding, 
-          label.y - label.fontSize, 
-          textMetrics.width + (padding * 2), 
-          label.fontSize + padding
-        );
+        const textWidth = ctx.measureText(label.text).width;
+        ctx.strokeRect(label.x - (textWidth / 2) - 10, label.y - label.fontSize, textWidth + 20, label.fontSize + 10);
         ctx.setLineDash([]);
       }
     });
@@ -138,7 +133,7 @@ const App = () => {
       return;
     }
 
-    // Hit test labels (Reverse order to select top-most)
+    // ตรวจสอบการคลิกเลือกตัวเลข
     const clickedLabel = [...labels].reverse().find(l => {
       const dist = Math.sqrt(Math.pow(l.x - pos.x, 2) + Math.pow(l.y - pos.y, 2));
       return dist < 40;
@@ -184,20 +179,11 @@ const App = () => {
     setMode('select');
   };
 
-  const undoArrow = () => setArrows(arrows.slice(0, -1));
-  
-  const deleteSelected = () => {
-    if (selectedId) {
-      setLabels(labels.filter(l => l.id !== selectedId));
-      setSelectedId(null);
-    }
-  };
-
   const downloadImage = () => {
-    setSelectedId(null); // Clear selection UI before saving
+    setSelectedId(null);
     setTimeout(() => {
       const link = document.createElement('a');
-      link.download = `spec-report-${Date.now()}.jpg`;
+      link.download = `dimension-pic-${Date.now()}.jpg`;
       link.href = canvasRef.current.toDataURL('image/jpeg', 0.95);
       link.click();
     }, 50);
@@ -205,31 +191,31 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center font-sans">
-      <div className="max-w-[1400px] w-full bg-white min-h-screen flex flex-col md:flex-row shadow-2xl overflow-hidden">
+      <div className="max-w-[1440px] w-full bg-white min-h-screen flex flex-col md:flex-row shadow-2xl overflow-hidden border-x border-slate-200">
         
-        {/* Sidebar */}
-        <div className="w-full md:w-80 bg-slate-900 text-white flex flex-col no-print">
+        {/* Sidebar Controls */}
+        <div className="w-full md:w-80 bg-slate-900 text-white flex flex-col no-print border-r border-slate-800">
           <div className="p-6 border-b border-slate-800">
             <h1 className="text-xl font-bold flex items-center gap-3">
               <div className="bg-blue-600 p-1.5 rounded-lg">
                 <GitCommit size={20} className="text-white" />
               </div>
-              Dimension Pro
+              Spec Builder Pro
             </h1>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2 font-semibold">
-              Specification Generator
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-2 font-bold italic">
+              Create Dimension Images
             </p>
           </div>
 
           <div className="p-6 flex flex-col gap-8 flex-1 overflow-y-auto">
-            {/* Section 1: Image */}
+            {/* Step 1: Image Upload */}
             <div className="space-y-3">
-              <label className="text-[11px] font-bold text-slate-400 uppercase">1. อัปโหลดรูปภาพ</label>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">1. เตรียมรูปภาพ</label>
               <button 
                 onClick={() => fileInputRef.current.click()}
-                className="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 flex items-center justify-center gap-3 transition-all active:scale-95"
+                className="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 flex items-center justify-center gap-3 transition-all active:scale-95 group"
               >
-                <Camera size={20} className="text-blue-400" />
+                <Camera size={20} className="text-blue-400 group-hover:scale-110 transition-transform" />
                 <span className="text-sm font-medium">เลือกไฟล์รูปภาพ</span>
               </button>
               <input type="file" ref={fileInputRef} onChange={(e) => {
@@ -246,38 +232,38 @@ const App = () => {
               }} className="hidden" accept="image/*" />
             </div>
 
-            {/* Section 2: Drawing Tools */}
+            {/* Step 2: Drawing Tools */}
             <div className="space-y-3">
-              <label className="text-[11px] font-bold text-slate-400 uppercase">2. เครื่องมือวัดขนาด</label>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">2. วาดเส้นลูกศร</label>
               <div className="grid grid-cols-2 gap-2">
                 <button 
                   onClick={() => setMode('select')} 
                   className={`py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${mode === 'select' ? 'bg-blue-600 border-blue-400 shadow-lg shadow-blue-900/40' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
                 >
                   <MousePointer2 size={18} />
-                  <span className="text-[11px] font-semibold">เลือก/ย้าย</span>
+                  <span className="text-[11px] font-bold">เลือก/ย้าย</span>
                 </button>
                 <button 
                   onClick={() => setMode('draw-arrow')} 
                   className={`py-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${mode === 'draw-arrow' ? 'bg-orange-600 border-orange-400 shadow-lg shadow-orange-900/40' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
                 >
                   <Move size={18} />
-                  <span className="text-[11px] font-semibold">วาดลูกศร</span>
+                  <span className="text-[11px] font-bold">วาดลูกศร</span>
                 </button>
               </div>
               <div className="flex gap-2">
-                <button onClick={undoArrow} disabled={arrows.length === 0} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[11px] flex items-center justify-center gap-2 disabled:opacity-50 transition-all">
-                  <Undo2 size={14} /> ย้อนกลับเส้น
+                <button onClick={() => setArrows(arrows.slice(0, -1))} disabled={arrows.length === 0} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2 disabled:opacity-30 transition-all">
+                  <Undo2 size={14} /> Undo เส้น
                 </button>
-                <button onClick={() => { if(confirm('ยืนยันการลบลูกศรทั้งหมด?')) setArrows([]); }} className="flex-1 py-2 bg-slate-800 hover:bg-red-900/20 border border-slate-700 hover:border-red-900/50 rounded-lg text-[11px] flex items-center justify-center gap-2 transition-all">
-                  <Trash2 size={14} /> ล้างทั้งหมด
+                <button onClick={() => { if(confirm('ต้องการลบเส้นทั้งหมด?')) setArrows([]); }} className="flex-1 py-2 bg-slate-800 hover:bg-red-900/20 border border-slate-700 hover:border-red-900/50 rounded-lg text-[10px] font-bold flex items-center justify-center gap-2 transition-all">
+                  <Trash2 size={14} /> ล้างเส้น
                 </button>
               </div>
             </div>
 
-            {/* Section 3: Labels */}
+            {/* Step 3: Labels */}
             <div className="space-y-3">
-              <label className="text-[11px] font-bold text-slate-400 uppercase">3. ตัวเลขระบุมิติ</label>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">3. ใส่ตัวเลขขนาด</label>
               <button 
                 onClick={addLabel}
                 className="w-full py-4 bg-blue-600 hover:bg-blue-500 rounded-xl flex items-center justify-center gap-3 font-bold text-sm shadow-xl shadow-blue-900/30 transition-all active:translate-y-1 active:shadow-none border-b-4 border-blue-800"
@@ -287,10 +273,10 @@ const App = () => {
               </button>
 
               {selectedId && labels.find(l => l.id === selectedId) && (
-                <div className="mt-4 p-4 bg-slate-800/50 rounded-xl border border-blue-500/30 space-y-3 animate-in fade-in zoom-in duration-200">
+                <div className="mt-4 p-4 bg-slate-800 rounded-xl border border-blue-500/50 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">กำลังแก้ไข</span>
-                    <button onClick={deleteSelected} className="text-red-400 hover:text-red-300 transition-colors">
+                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">แก้ไขตัวเลข</span>
+                    <button onClick={deleteSelected} className="text-red-400 hover:text-red-300">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -298,7 +284,8 @@ const App = () => {
                     type="text" 
                     value={labels.find(l => l.id === selectedId).text}
                     onChange={(e) => setLabels(labels.map(l => l.id === selectedId ? {...l, text: e.target.value} : l))}
-                    className="w-full bg-white text-slate-900 p-2.5 rounded-lg text-sm font-bold outline-none ring-2 ring-blue-500 shadow-inner"
+                    className="w-full bg-white text-slate-900 p-2.5 rounded-lg text-sm font-bold outline-none ring-4 ring-blue-500/20"
+                    placeholder="ระบุขนาด..."
                     autoFocus
                   />
                   <div className="flex gap-2">
@@ -319,51 +306,51 @@ const App = () => {
             </div>
           </div>
 
-          {/* Bottom Actions */}
-          <div className="p-6 bg-slate-950/50 border-t border-slate-800 space-y-2">
+          {/* Export Footer */}
+          <div className="p-6 bg-slate-950 border-t border-slate-800 space-y-2">
             <button 
               onClick={downloadImage}
-              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl flex items-center justify-center gap-3 font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all hover:scale-[1.02]"
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl flex items-center justify-center gap-3 font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-0.5"
             >
               <Download size={20} />
-              บันทึกรูปภาพ (JPG)
+              บันทึกรูปภาพ (.JPG)
             </button>
             <button 
               onClick={() => window.print()}
               className="w-full py-3.5 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center gap-3 font-bold text-sm transition-all"
             >
               <Printer size={20} />
-              พิมพ์รายงาน (PDF)
+              พิมพ์เป็น PDF
             </button>
           </div>
         </div>
 
-        {/* Main Canvas Area */}
+        {/* Main Canvas Workspace */}
         <div className="flex-1 bg-slate-50 flex flex-col items-center justify-center p-4 md:p-12 relative overflow-hidden print:p-0 print:bg-white">
           
-          {/* Print Only Header */}
-          <div className="hidden print:block w-full text-center mb-8">
-            <h1 className="text-3xl font-bold text-slate-900">Product Dimension Specification</h1>
-            <p className="text-slate-500">Date: {new Date().toLocaleDateString('th-TH')}</p>
+          {/* Header สำหรับหน้า Print */}
+          <div className="hidden print:block w-full text-center mb-10">
+            <h1 className="text-3xl font-bold text-slate-900">ตารางระบุขนาดสินค้า (Product Dimension)</h1>
+            <p className="text-slate-500 mt-2">พิมพ์เมื่อวันที่: {new Date().toLocaleDateString('th-TH')}</p>
           </div>
 
-          {/* Mode Indicator (Desktop Only) */}
+          {/* โหมดสถานะ (ลอยอยู่ด้านบน) */}
           <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 no-print">
-            <div className={`px-6 py-2 rounded-full shadow-2xl flex items-center gap-3 border text-sm font-bold transition-all ${mode === 'draw-arrow' ? 'bg-orange-500 text-white border-orange-400 animate-pulse' : 'bg-white text-blue-600 border-blue-100'}`}>
+            <div className={`px-6 py-2.5 rounded-full shadow-2xl flex items-center gap-3 border text-sm font-bold transition-all ${mode === 'draw-arrow' ? 'bg-orange-600 text-white border-orange-500 animate-pulse' : 'bg-white text-blue-600 border-blue-100'}`}>
               {mode === 'draw-arrow' ? (
-                <><Move size={16} /> โหมดวาดลูกศร: คลิกลากบนภาพเพื่อสร้างเส้นวัดขนาด</>
+                <><Move size={16} /> โหมดวาดลูกศร: คลิกลากบนภาพเพื่อสร้างเส้นวัดมิติ</>
               ) : (
-                <><MousePointer2 size={16} /> โหมดเลือก: คลิกที่ตัวเลขเพื่อย้ายหรือแก้ไข</>
+                <><MousePointer2 size={16} /> โหมดเลือก: คลิกที่ตัวเลขเพื่อย้ายหรือแก้ไขข้อมูล</>
               )}
             </div>
           </div>
 
           {/* Canvas Wrapper */}
-          <div className="relative shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-lg bg-white overflow-hidden border-[12px] border-white print:border-0 print:shadow-none">
+          <div className="relative shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] rounded-lg bg-white overflow-hidden border-[12px] border-white print:border-0 print:shadow-none transition-transform duration-500">
             <canvas 
               ref={canvasRef}
-              width={1000}
-              height={800}
+              width={1100}
+              height={850}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -372,27 +359,24 @@ const App = () => {
             />
           </div>
 
-          <div className="mt-8 text-slate-400 text-xs flex gap-8 no-print font-medium italic">
-            <p>💡 เคล็ดลับ: ลากตัวเลขไปวางทับเส้นลูกศรเพื่อให้ดูเหมือนต้นฉบับ</p>
+          <div className="mt-8 text-slate-400 text-xs flex gap-10 no-print font-medium italic opacity-70">
+            <p>💡 เคล็ดลับ: วาดลูกศรให้เสร็จก่อน แล้วค่อยสร้างตัวเลขมาวางทับกึ่งกลางเส้น</p>
           </div>
         </div>
       </div>
 
+      {/* ปรับแต่ง CSS สำหรับการพิมพ์ */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
-        
-        body { font-family: 'Inter', sans-serif; }
-
         @media print {
           .no-print { display: none !important; }
           body { background: white; margin: 0; padding: 0; }
           .min-h-screen { min-height: auto; display: block; }
-          .max-w-\[1400px\] { max-width: 100%; border: none; box-shadow: none; display: block; }
+          .max-w-\[1440px\] { max-width: 100%; border: none; box-shadow: none; display: block; }
           canvas { width: 100% !important; height: auto !important; max-width: 100%; }
           @page { size: A4 landscape; margin: 1cm; }
         }
 
-        /* Smooth scroll for sidebar */
+        /* สำหรับ Scrollbar ของ Sidebar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
